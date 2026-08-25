@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Experiment Assignment Service — Demo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 3rem auto; padding: 0 1rem; }
+    button { padding: 0.5rem 1rem; margin-right: 0.5rem; cursor: pointer; }
+    pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; }
+    #headline { font-size: 1.5rem; margin: 1.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Demo page</h1>
+  <p>
+    Exercises the live API: fetches an assignment for a random visitor, renders the
+    variant's content, then fires exposure/conversion events. Set <code>API_BASE</code>
+    and <code>SITE_KEY</code> below to point at a deployed instance.
+  </p>
+
+  <div id="headline">(loading variant…)</div>
+  <button id="convert" disabled>Simulate conversion</button>
+  <button id="reload">New visitor</button>
+
+  <pre id="log"></pre>
+
+  <script>
+    const API_BASE = window.location.origin; // same-origin by default; edit for a deployed URL
+    const SITE_KEY = "demo-site-key"; // replace with a real key from POST /sites
+    const EXPERIMENT_ID = "demo-headline";
+
+    let visitorId = crypto.randomUUID();
+    const log = (...args) => {
+      document.getElementById("log").textContent += args.map((a) => JSON.stringify(a)).join(" ") + "\n";
+    };
+
+    async function run() {
+      document.getElementById("log").textContent = "";
+      document.getElementById("headline").textContent = "(loading variant…)";
+      document.getElementById("convert").disabled = true;
+
+      const res = await fetch(
+        `${API_BASE}/assign?visitorId=${visitorId}&siteKey=${SITE_KEY}&experiments=${EXPERIMENT_ID}`,
+      );
+      const data = await res.json();
+      log("assign response:", data);
+
+      const assignment = data.experiments[EXPERIMENT_ID];
+      if (!assignment) {
+        document.getElementById("headline").textContent = "(no experiment configured — create one via POST /experiments)";
+        return;
+      }
+
+      document.getElementById("headline").textContent = assignment.content?.text ?? assignment.variantId;
+
+      // Exposure fires only after the variant is actually applied to the DOM, per
+      // DESIGN.md §1 — not at assignment time.
+      await fetch(`${API_BASE}/track/exposure`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitorId, siteKey: SITE_KEY, experimentId: EXPERIMENT_ID, variantId: assignment.variantId }),
+      });
+      log("exposure tracked for variant:", assignment.variantId);
+
+      document.getElementById("convert").disabled = false;
+    }
+
+    document.getElementById("convert").addEventListener("click", async () => {
+      await fetch(`${API_BASE}/track/conversion`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitorId, siteKey: SITE_KEY, experimentId: EXPERIMENT_ID, goalId: "signup" }),
+      });
+      log("conversion tracked");
+    });
+
+    document.getElementById("reload").addEventListener("click", () => {
+      visitorId = crypto.randomUUID();
+      run();
+    });
+
+    run();
+  </script>
+</body>
+</html>

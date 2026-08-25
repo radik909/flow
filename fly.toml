@@ -1,0 +1,38 @@
+# Fly.io app config. See DESIGN.md §9 for the hosting decision and trade-offs.
+app = "experiment-assignment-service" # rename to a unique app name before `fly launch`
+
+[build]
+
+[env]
+  PORT = "8080"
+  HOST = "0.0.0.0"
+  CONFIG_POLL_INTERVAL_MS = "7000"
+  CONFIG_MAX_STALE_MS = "120000"
+
+# Runs once per deploy, before new instances take traffic — keeps a migration from
+# ever racing a request against a schema it doesn't match yet.
+[deploy]
+  release_command = "node dist/db/migrate.js"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Let Fly suspend the machine when idle and cold-start it on the next request.
+  # Deliberate per DESIGN.md's Out of scope: budget-friendly hosting over always-on
+  # capacity, since a cold start doesn't violate the app-level /assign latency budget
+  # (that's measured once the process is warm) — it's a rarer, accepted UX trade-off,
+  # not a change to the assignment computation's own speed.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
