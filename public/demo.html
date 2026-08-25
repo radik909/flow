@@ -30,7 +30,12 @@
     const SITE_KEY = "e8a7f609ddc80cc82f883616f9d06fa9"; // "demo site", seeded locally — see README step 1
     const EXPERIMENT_ID = "demo-headline";
 
-    let visitorId = crypto.randomUUID();
+    // Persisted in localStorage, mirroring snippet.js's own cookie+localStorage
+    // approach (DESIGN.md), so this page demonstrates the same durable identity a real
+    // integration gets — surviving reloads and tab closes alike. Only the "New visitor"
+    // button below should rotate it.
+    let visitorId = localStorage.getItem("demo.visitorId") || crypto.randomUUID();
+    localStorage.setItem("demo.visitorId", visitorId);
     const log = (...args) => {
       document.getElementById("log").textContent += args.map((a) => JSON.stringify(a)).join(" ") + "\n";
     };
@@ -77,6 +82,7 @@
 
     document.getElementById("reload").addEventListener("click", () => {
       visitorId = crypto.randomUUID();
+      localStorage.setItem("demo.visitorId", visitorId);
       run();
     });
 
