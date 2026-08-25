@@ -1,23 +1,29 @@
 # Experiment Assignment Service — Design Document
 
+This project is architected & written by Claude.
+
 ### Out of scope:
 
 Due to time restrictions & personal availability
 
+- Region specific for now. Single-region deployment — moving to edge or multi-region to cut network round-trip time for distant visitors is out of scope. Note this is a network-latency concern, not a compute one: the assignment computation itself stays fast regardless of region, since it's a dependency-free in-memory function (§1/§2) — what's deprioritized is shaving milliseconds off the network hop, not the `<10ms` compute/`50ms` fail-open budget stated elsewhere in this doc.
+- Infra-level cold starts and always-on/dedicated low-latency hosting. Optimizing deployment infrastructure (always-on capacity, autoscaling tuning, multi-region placement) is deprioritized in favor of a budget-friendly, fast-to-deploy setup (a single small machine on Fly.io or similar) — this is a hosting/ops trade-off made for the 24h window and budget, not a relaxation of the application's own latency guarantees.
+- Client-side retry/offline queueing for tracking calls, and server-side redelivery of events dropped once the bounded in-memory buffer overflows (§4). A tracking call that fails or gets dropped is simply lost, not retried or persisted for later delivery — deduplication and buffering _are_ built (§4, §6); redelivery of already-lost events is what's out of scope.
+- DB and config backups, and disaster recovery if storage is lost or corrupted entirely (point-in-time recovery, documented RPO/RTO). The design relies on the hosting provider's default storage durability; it does not claim production-grade backup/recovery guarantees.
+- Load/capacity testing. §3 (Scale) is an analytical argument — what's stateless, what's the actual bottleneck, what breaks first — not a benchmarked one. Nothing here has been run against millions of simulated calls; that gap is named explicitly rather than implied by the confident language in §3.
+- Automated test suite / CI pipeline. Code is verified manually end-to-end rather than covered by automated tests or CI, given the time window — named here rather than left unaddressed.
 - Cookie(first/third party), localStorage/sessionStorage & limitations.
 - Browser side UUID for identifying a user: Same user(auth) in different devices/browser(or incognito) are identified as different users.
-- GDPR/CCPA: Even a random UUID used to single out a browser over time is personal data under GDPR, and an experimentation cookie is not "strictly necessary" under ePrivacy.
-- Syncing the changes in config: Polling the changes in regular interval or a service worker in the background
-- Error recovery mechanism for Tracking (since it's fire & forget event)
-- DB backups & config backups and error recovery mechanism if the service is down
+- GDPR/CCPA: Even a random UUID used to single out a browser over time is personal data under GDPR, and an experimentation cookie is not "strictly necessary" under ePrivacy. Ignoring cookie acceptance & going with computations from initial render without acceptenace by user.
 
 ### Assumptions:
 
 To avoid additional time consumption for the initial assignment.
 
-- There will not be 1000's of experiments: To keep network bandwidth & size of the script minimal to adhere to the "fast" in the requirement
+- There will not be a huge number of experiments active(script includes this): To keep network bandwidth & size of the script minimal to adhere to the "fast" in the requirement
 - The details of the experiment in the script will be publicly visible to anyone who visits the site. So anything related to security is moved out of the scope.
 - Config changes are append-safe. So that the below architecture adheres to the requirement.
+- Hashing algorithm that claude suggested & implemented is correct. (I personally have only used libraries to handle this situation, like the Flipper's feature flags which internally uses well defined algorithms).
 
 ## 1. Architecture
 
@@ -58,7 +64,7 @@ variant = the variant whose cumulative allocation range contains `bucket`
 ```
 
 - Use a well-distributed hash (SHA-256 truncated, or MurmurHash3 — not needed cryptographically, just uniform). Same visitor + same experiment + same salt → same bucket, forever, regardless of restarts, regardless of which instance serves the request.
-- Allocation is expressed as cumulative ranges over 0–9999 (e.g., control: 0–4999, variant_b: 5000–8999, holdback: 9000–9999). A visitor falls into exactly one range. This is standard consistent-hashing-style bucketing, and it has a nice property _if_ one specific invariant holds: **existing ranges are never renumbered, only grown or shrunk from their own edges.** Ramping variant_b from 10% to 50% by extending its range (5000–8999 → 5000–8999 ∪ new space taken from holdback/control) only flips the visitors who fall in the newly-reassigned sub-range — everyone else's bucket number is unchanged, so they stay put. This is what "only visitors near the boundary flip" actually depends on, and it's worth stating precisely because the naive version of this idea breaks under a case that looks superficially similar:
+- Allocation is expressed as cumulative ranges over 0–9999 (e.g., control: 0–4999, variant*b: 5000–8999, holdback: 9000–9999). A visitor falls into exactly one range. This is standard consistent-hashing-style bucketing, and it has a nice property \_if* one specific invariant holds: **existing ranges are never renumbered, only grown or shrunk from their own edges.** Ramping variant_b from 10% to 50% by extending its range (5000–8999 → 5000–8999 ∪ new space taken from holdback/control) only flips the visitors who fall in the newly-reassigned sub-range — everyone else's bucket number is unchanged, so they stay put. This is what "only visitors near the boundary flip" actually depends on, and it's worth stating precisely because the naive version of this idea breaks under a case that looks superficially similar:
   - **Adding a variant is not the same operation as ramping one.** Going from 2 variants (control 0–4999, b 5000–9999) to 3 evenly-split variants (control 0–3332, b 3333–6665, c 6666–9999) recomputes every boundary — the majority of visitors who were in `b` get renumbered into `control` or `c`. That's a full reshuffle, not a boundary flip, and it silently breaks stickiness for anyone whose bucket falls after the first moved boundary.
   - The rule this system enforces: a **new variant may only carve its range out of currently-unallocated space** (an explicit holdback/undecided range reserved at experiment creation) or out of one existing variant's range from that variant's own edge inward. It may never cause an existing variant's range to move without also being resized. If a config change would require renumbering ranges that aren't the one being resized, it's rejected — the operator must instead create a new experiment (new salt), which is a clean version bump rather than a silent reshuffle.
 - The experiment's `salt` (usually just its own ID) ensures a visitor's bucket in experiment A is statistically independent of their bucket in experiment B — no correlation between which variants they land in across experiments.
