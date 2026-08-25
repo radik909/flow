@@ -16,6 +16,7 @@ Due to time restrictions & personal availability
 - Browser side UUID for identifying a user: Same user(auth) in different devices/browser(or incognito) are identified as different users.
 - GDPR/CCPA: Even a random UUID used to single out a browser over time is personal data under GDPR, and an experimentation cookie is not "strictly necessary" under ePrivacy. Ignoring cookie acceptance & going with computations from initial render without acceptenace by user.
 - I personally have only used libraries to handle this situation, like the Flipper's feature flags which internally uses well defined algorithms. Though I have tested the distribution algorithm well, it's not something I am used to. Modifying/updating this distribution % have not been tested - so out of scope for this assignment.
+- Multi-tenency has not been considered for this scope. The whole concept of "Site" might feel redundant as it does not have much use-case at this point.
 
 ### Assumptions:
 

@@ -12,7 +12,7 @@ scale, failure modes, and the trade-offs made under a 24h budget).
   only an in-memory config cache (never Postgres on this path).
 - **Tracking** (`POST /track/exposure`, `POST /track/conversion`) — durable, deduped
   via DB unique constraints.
-- **Config API** (`POST /sites`, `POST /experiments`, `GET /experiments/:id`,
+- **Config API** (`POST /sites`, `GET /sites`, `POST /experiments`, `GET /experiments/:id`,
   `PATCH /experiments/:id/allocation`) — bearer-token authed, includes LLM-generated
   variant content at creation time.
 - **Results** (`GET /results/:id`) — exposures/conversions/rate per variant, a
@@ -26,9 +26,18 @@ scale, failure modes, and the trade-offs made under a 24h budget).
 - **Demo page** (`public/demo.html`, served at `/demo.html`) — a separate, narrated
   manual test harness with its own inline JS and visible logging, for walking through
   the API step by step. Not what a real integration would use — that's the snippet above.
+  API base/site key/experiment ID are all runtime-configurable fields (resolved from
+  `?siteKey=&experimentId=&apiBase=` URL params, then `localStorage`, then blank) —
+  nothing is hardcoded in the file, so pointing it at a different deployment or
+  experiment never needs a code change or redeploy. The Experiments page's "Try in
+  demo" link generates that URL for a given row.
+- **Sites admin page** (`public/sites.html`, served at `/sites.html`) — lists
+  registered sites via `GET /sites`, including a live count of experiments per site
+  (a left join in the route, not stored), with a copy-to-clipboard button per key and a
+  "+ New site" form (`POST /sites`).
 - **Shared tab bar** (`public/nav.js`) — a small dependency-free script included at the
-  top of `<body>` on the experiments, demo, and snippet-test pages, so they all link to
-  each other with the current page highlighted.
+  top of `<body>` on the experiments, sites, demo, and snippet-test pages, so they all
+  link to each other with the current page highlighted.
 - **Experiments admin page** (`public/experiments.html`, served at `/experiments.html`)
   — lists experiments via `GET /experiments` (bearer token entered in the page, kept in
   `localStorage` only) and expands a row to show its `GET /results/:id` breakdown
