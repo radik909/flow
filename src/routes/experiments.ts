@@ -145,4 +145,21 @@ export function registerExperimentRoutes(app: FastifyInstance): void {
     const rows = await db.select().from(experiments);
     return reply.send(rows);
   });
+
+  // Single-experiment detail, including current variant ranges — needed by the admin
+  // UI's allocation editor (there's no other way to read back rangeStart/rangeEnd for
+  // an existing variant; GET /experiments and GET /results/:id both omit them).
+  app.get<{ Params: { id: string } }>("/experiments/:id", { preHandler: requireConfigAuth }, async (request, reply) => {
+    const { id } = request.params;
+    const [experiment] = await db.select().from(experiments).where(eq(experiments.id, id));
+    if (!experiment) return reply.code(404).send({ error: "experiment not found" });
+
+    const variantRows = await db.select().from(variants).where(eq(variants.experimentId, id));
+    return reply.send({
+      ...experiment,
+      variants: variantRows
+        .map((v) => ({ id: v.id, name: v.name, rangeStart: v.rangeStart, rangeEnd: v.rangeEnd, isControl: v.isControl }))
+        .sort((a, b) => a.rangeStart - b.rangeStart),
+    });
+  });
 }

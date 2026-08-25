@@ -6,7 +6,8 @@
   <style>
     body { font-family: system-ui, sans-serif; max-width: 900px; margin: 3rem auto; padding: 0 1rem; }
     label { display: block; font-size: 0.85rem; margin: 0.75rem 0 0.25rem; }
-    input { width: 100%; box-sizing: border-box; padding: 0.4rem; font-family: monospace; }
+    input, textarea, select { width: 100%; box-sizing: border-box; padding: 0.4rem; font-family: monospace; font-size: 0.9rem; }
+    textarea { resize: vertical; }
     button { padding: 0.5rem 1rem; margin-top: 0.75rem; cursor: pointer; }
     table { width: 100%; border-collapse: collapse; margin-top: 2rem; }
     th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; vertical-align: top; }
@@ -23,6 +24,29 @@
     .warn { color: #a8710a; }
     .error { color: #b3261e; }
     .muted { color: #888; font-size: 0.85rem; }
+
+    #createPanel, #editPanel { border: 1px solid #ddd; border-radius: 0.5rem; padding: 1rem 1.25rem 1.25rem; margin-top: 1rem; display: none; }
+    #createPanel h2, #editPanel h2 { font-size: 1.1rem; margin: 0 0 0.25rem; }
+    .edit-btn { padding: 0.25rem 0.6rem; margin: 0; font-size: 0.8rem; }
+    .site-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+    .site-row > div { flex: 1; }
+    .site-row button { white-space: nowrap; margin-top: 0; }
+    #newSiteBlock { display: none; background: #f9f9f9; border-radius: 0.4rem; padding: 0.75rem; margin-top: 0.5rem; }
+    #newSiteBlock .site-row { align-items: center; }
+
+    .variant-row { border: 1px solid #eee; border-radius: 0.4rem; padding: 0.75rem; margin-top: 0.75rem; }
+    .variant-row .grid { display: grid; grid-template-columns: auto 1fr 1fr 5.5rem; gap: 0.5rem 0.75rem; align-items: end; }
+    .v-percent { text-align: right; }
+    .variant-row .grid label { margin: 0; }
+    .variant-row textarea { margin-top: 0.5rem; }
+    .variant-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem; }
+    .variant-range { font-size: 0.8rem; color: #888; }
+    .v-remove { background: none; border: none; color: #b3261e; cursor: pointer; padding: 0; margin: 0; font-size: 0.8rem; text-decoration: underline; }
+    .control-flag { display: flex; align-items: center; gap: 0.35rem; font-size: 0.8rem; white-space: nowrap; }
+    .control-flag input { width: auto; }
+
+    #createActions { display: flex; align-items: center; gap: 0.75rem; margin-top: 1.25rem; }
+    #createStatus.error { white-space: pre-wrap; }
   </style>
 </head>
 <body>
@@ -40,6 +64,7 @@
   <input id="token" type="password" placeholder="Bearer token from CONFIG_API_TOKENS" />
 
   <button id="load">Load experiments</button>
+  <button id="newExperimentToggle" type="button">+ New experiment</button>
   <span id="status" class="muted"></span>
 
   <table id="table" style="display: none;">
@@ -51,10 +76,71 @@
         <th>Status</th>
         <th>Salt</th>
         <th>Created</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody id="rows"></tbody>
   </table>
+
+  <div id="createPanel">
+    <h2>New experiment</h2>
+    <p class="muted">
+      Creates via <code>POST /experiments</code>. Set each variant's "% traffic" to
+      control its share of the bucket space — they must add up to 100%. Mark a variant
+      "Generate with LLM" to have its copy written server-side by the Anthropic API
+      instead of typing it yourself — the request blocks until generation finishes, so
+      this can take a few seconds.
+    </p>
+
+    <label for="newId">Experiment ID</label>
+    <input id="newId" placeholder="e.g. homepage-cta" />
+
+    <label for="newName">Name</label>
+    <input id="newName" placeholder="e.g. Homepage CTA test" />
+
+    <label for="newSiteKey">Site key</label>
+    <div class="site-row">
+      <div><input id="newSiteKey" placeholder="paste an existing site key" /></div>
+      <button id="toggleNewSite" type="button">+ new site</button>
+    </div>
+    <div id="newSiteBlock">
+      <div class="site-row">
+        <div><input id="newSiteName" placeholder="site name, e.g. marketing site" /></div>
+        <button id="createSiteBtn" type="button">Create site</button>
+      </div>
+      <p id="newSiteStatus" class="muted" style="margin: 0.5rem 0 0;"></p>
+    </div>
+
+    <h3 style="margin-bottom: 0;">Variants</h3>
+    <div id="variantRows"></div>
+    <p id="allocationTotal" class="muted" style="margin-top: 0.5rem;"></p>
+    <button id="addVariantBtn" type="button">+ Add variant</button>
+
+    <div id="createActions">
+      <button id="submitExperimentBtn" type="button">Create experiment</button>
+      <span id="createStatus" class="muted"></span>
+    </div>
+  </div>
+
+  <div id="editPanel">
+    <h2 id="editHeading">Edit allocation</h2>
+    <p class="muted">
+      Only traffic allocation can be changed here (<code>PATCH /experiments/:id/allocation</code>).
+      Variant names/IDs/content and adding or removing a variant aren't editable this
+      way — that's a new experiment (new salt), per DESIGN.md §2. Since the server only
+      allows moving one shared boundary between adjacent variants per call, a change
+      here may be sent as several sequential requests automatically.
+    </p>
+
+    <div id="editVariantRows"></div>
+    <p id="editAllocationTotal" class="muted" style="margin-top: 0.5rem;"></p>
+
+    <div id="createActions">
+      <button id="saveAllocationBtn" type="button">Save allocation</button>
+      <button id="cancelEditBtn" type="button">Cancel</button>
+      <span id="editStatus" class="muted"></span>
+    </div>
+  </div>
 
   <script>
     const apiBaseInput = document.getElementById("apiBase");
@@ -72,8 +158,12 @@
       return new Date(iso).toLocaleString();
     }
 
+    function currentApiBase() {
+      return apiBaseInput.value.replace(/\/$/, "");
+    }
+
     async function loadExperiments() {
-      const apiBase = apiBaseInput.value.replace(/\/$/, "");
+      const apiBase = currentApiBase();
       const token = tokenInput.value;
       localStorage.setItem("experiments.apiBase", apiBase);
       localStorage.setItem("experiments.token", token);
@@ -121,8 +211,13 @@
           <td><span class="status status-${exp.status}">${exp.status}</span></td>
           <td><code>${exp.salt}</code></td>
           <td>${fmtDate(exp.createdAt)}</td>
+          <td><button type="button" class="edit-btn">Edit allocation</button></td>
         `;
         tr.addEventListener("click", () => toggleResults(tr, exp.id, apiBase));
+        tr.querySelector(".edit-btn").addEventListener("click", (event) => {
+          event.stopPropagation();
+          openEditPanel(exp.id, apiBase);
+        });
         rows.appendChild(tr);
       }
     }
@@ -139,7 +234,7 @@
       const resultsRow = document.createElement("tr");
       resultsRow.className = "results-row";
       const cell = document.createElement("td");
-      cell.colSpan = 6;
+      cell.colSpan = 7;
       cell.textContent = "loading results…";
       resultsRow.appendChild(cell);
       tr.after(resultsRow);
@@ -206,6 +301,425 @@
 
     document.getElementById("load").addEventListener("click", loadExperiments);
     if (tokenInput.value) loadExperiments();
+
+    // --- New experiment form ---
+    // Total bucket space an experiment's variants must exactly partition (DESIGN.md §2).
+    // Mirrors BUCKET_SPACE in src/constants.ts — this page has no build step to import it.
+    const BUCKET_SPACE = 10000;
+
+    const createPanel = document.getElementById("createPanel");
+    const variantRowsEl = document.getElementById("variantRows");
+    const createStatus = document.getElementById("createStatus");
+    const newSiteBlock = document.getElementById("newSiteBlock");
+    const newSiteStatus = document.getElementById("newSiteStatus");
+    const editPanel = document.getElementById("editPanel");
+    const editVariantRowsEl = document.getElementById("editVariantRows");
+    const editStatus = document.getElementById("editStatus");
+
+    document.getElementById("newExperimentToggle").addEventListener("click", () => {
+      editPanel.style.display = "none";
+      const showing = createPanel.style.display === "block";
+      createPanel.style.display = showing ? "none" : "block";
+    });
+
+    document.getElementById("toggleNewSite").addEventListener("click", () => {
+      newSiteBlock.style.display = newSiteBlock.style.display === "block" ? "none" : "block";
+    });
+
+    document.getElementById("createSiteBtn").addEventListener("click", async () => {
+      const name = document.getElementById("newSiteName").value.trim();
+      if (!name) {
+        newSiteStatus.textContent = "site name is required";
+        newSiteStatus.className = "error";
+        return;
+      }
+      newSiteStatus.textContent = "creating…";
+      newSiteStatus.className = "muted";
+      try {
+        const res = await fetch(`${currentApiBase()}/sites`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokenInput.value}` },
+          body: JSON.stringify({ name }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          newSiteStatus.textContent = `${res.status}: ${body.error ?? res.statusText}`;
+          newSiteStatus.className = "error";
+          return;
+        }
+        document.getElementById("newSiteKey").value = body.key;
+        newSiteStatus.textContent = `created — key filled in above`;
+        newSiteStatus.className = "muted";
+      } catch (err) {
+        newSiteStatus.textContent = `request failed: ${err.message}`;
+        newSiteStatus.className = "error";
+      }
+    });
+
+    function addVariantRow(defaults = {}) {
+      const row = document.createElement("div");
+      row.className = "variant-row";
+      row.innerHTML = `
+        <div class="grid">
+          <div class="control-flag">
+            <input type="radio" name="controlVariant" class="v-control" ${defaults.isControl ? "checked" : ""} />
+            <label style="margin:0;">Control</label>
+          </div>
+          <div>
+            <label>Name</label>
+            <input class="v-name" placeholder="Variant name" value="${defaults.name ?? ""}" />
+          </div>
+          <div>
+            <label>Variant ID</label>
+            <input class="v-id" placeholder="variant-id" value="${defaults.id ?? ""}" />
+          </div>
+          <div>
+            <label>% traffic</label>
+            <input class="v-percent" type="number" min="1" max="99" step="1" value="${defaults.percent ?? ""}" />
+          </div>
+        </div>
+        <label style="margin-top:0.5rem;">Content</label>
+        <select class="v-mode">
+          <option value="static" ${defaults.mode !== "llm" ? "selected" : ""}>Static text</option>
+          <option value="llm" ${defaults.mode === "llm" ? "selected" : ""}>Generate with LLM</option>
+        </select>
+        <textarea class="v-content" rows="2" placeholder="${defaults.mode === "llm" ? "Prompt describing the copy to generate…" : "Variant copy shown to visitors…"}">${defaults.content ?? ""}</textarea>
+        <div class="variant-meta">
+          <span class="variant-range muted"></span>
+          <button type="button" class="v-remove">remove</button>
+        </div>
+      `;
+
+      const modeSelect = row.querySelector(".v-mode");
+      const contentArea = row.querySelector(".v-content");
+      modeSelect.addEventListener("change", () => {
+        contentArea.placeholder =
+          modeSelect.value === "llm" ? "Prompt describing the copy to generate…" : "Variant copy shown to visitors…";
+      });
+
+      row.querySelector(".v-percent").addEventListener("input", recomputeRanges);
+
+      row.querySelector(".v-remove").addEventListener("click", () => {
+        row.remove();
+        recomputeRanges();
+      });
+
+      variantRowsEl.appendChild(row);
+      recomputeRanges();
+    }
+
+    // Converts each row's "% traffic" into a contiguous bucket range (1% = 100 buckets,
+    // since BUCKET_SPACE is 10000 — whole-number percentages divide it exactly, no
+    // rounding). Rows are laid out back-to-back in the order they appear on the page.
+    // Percentages are required to sum to 100 at submit time — that's what
+    // assertCovers/assertSafeReallocation enforce server-side (DESIGN.md §2), so the
+    // total is surfaced live here rather than left to a failed request.
+    function recomputeRanges() {
+      const rowEls = [...variantRowsEl.querySelectorAll(".variant-row")];
+      let cursor = 0;
+      let totalPercent = 0;
+      rowEls.forEach((row) => {
+        const percent = Number(row.querySelector(".v-percent").value) || 0;
+        totalPercent += percent;
+        const bucketCount = percent * (BUCKET_SPACE / 100);
+        const start = cursor;
+        const end = start + bucketCount - 1;
+        row.dataset.rangeStart = start;
+        row.dataset.rangeEnd = end;
+        row.querySelector(".variant-range").textContent =
+          bucketCount > 0 ? `${percent}% → buckets ${start}–${end}` : "0% (no traffic)";
+        cursor = end + 1;
+      });
+
+      const totalEl = document.getElementById("allocationTotal");
+      if (totalPercent === 100) {
+        totalEl.textContent = `Total allocation: ${totalPercent}%`;
+        totalEl.className = "muted";
+      } else {
+        const diff = 100 - totalPercent;
+        totalEl.textContent = `Total allocation: ${totalPercent}% — must equal 100% (${diff > 0 ? `add ${diff}` : `remove ${-diff}`}%)`;
+        totalEl.className = "error";
+      }
+    }
+
+    document.getElementById("addVariantBtn").addEventListener("click", () => addVariantRow({ percent: 0 }));
+
+    addVariantRow({ id: "control", name: "Control", isControl: true, mode: "static", percent: 50 });
+    addVariantRow({ id: "b", name: "Variant B", mode: "static", percent: 50 });
+
+    document.getElementById("submitExperimentBtn").addEventListener("click", async () => {
+      const apiBase = currentApiBase();
+      const token = tokenInput.value;
+      const id = document.getElementById("newId").value.trim();
+      const name = document.getElementById("newName").value.trim();
+      const siteKey = document.getElementById("newSiteKey").value.trim();
+
+      if (!id || !name || !siteKey) {
+        createStatus.textContent = "experiment ID, name, and site key are all required";
+        createStatus.className = "error";
+        return;
+      }
+
+      const rowEls = [...variantRowsEl.querySelectorAll(".variant-row")];
+      if (rowEls.length === 0) {
+        createStatus.textContent = "at least one variant is required";
+        createStatus.className = "error";
+        return;
+      }
+
+      const totalPercent = rowEls.reduce((sum, row) => sum + (Number(row.querySelector(".v-percent").value) || 0), 0);
+      if (totalPercent !== 100) {
+        createStatus.textContent = `variant traffic percentages must add up to 100% (currently ${totalPercent}%)`;
+        createStatus.className = "error";
+        return;
+      }
+
+      const variants = [];
+      let controlCount = 0;
+      for (const row of rowEls) {
+        const vId = row.querySelector(".v-id").value.trim();
+        const vName = row.querySelector(".v-name").value.trim();
+        const isControl = row.querySelector(".v-control").checked;
+        const mode = row.querySelector(".v-mode").value;
+        const contentValue = row.querySelector(".v-content").value.trim();
+        const percent = Number(row.querySelector(".v-percent").value) || 0;
+        if (isControl) controlCount++;
+
+        if (!vId || !vName || !contentValue) {
+          createStatus.textContent = "every variant needs an ID, name, and " + (mode === "llm" ? "prompt" : "content");
+          createStatus.className = "error";
+          return;
+        }
+        if (percent < 1) {
+          createStatus.textContent = `variant "${vId || vName}" needs at least 1% traffic`;
+          createStatus.className = "error";
+          return;
+        }
+
+        const variant = {
+          id: vId,
+          name: vName,
+          rangeStart: Number(row.dataset.rangeStart),
+          rangeEnd: Number(row.dataset.rangeEnd),
+          isControl,
+        };
+        if (mode === "llm") variant.generate = { prompt: contentValue };
+        else variant.content = { text: contentValue };
+        variants.push(variant);
+      }
+
+      if (controlCount !== 1) {
+        createStatus.textContent = "mark exactly one variant as control";
+        createStatus.className = "error";
+        return;
+      }
+
+      const usingLlm = variants.some((v) => v.generate);
+      const submitBtn = document.getElementById("submitExperimentBtn");
+      submitBtn.disabled = true;
+      createStatus.textContent = usingLlm ? "creating… (generating variant copy with the LLM, may take a few seconds)" : "creating…";
+      createStatus.className = "muted";
+
+      try {
+        const res = await fetch(`${apiBase}/experiments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ id, siteKey, name, variants }),
+        });
+        const body = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          createStatus.textContent = body.hint ? `${body.error}\n${body.hint}` : (body.error ?? res.statusText);
+          createStatus.className = "error";
+          return;
+        }
+
+        createStatus.textContent = `created "${body.id}"`;
+        createStatus.className = "muted";
+        createPanel.style.display = "none";
+        await loadExperiments();
+      } catch (err) {
+        createStatus.textContent = `request failed: ${err.message}`;
+        createStatus.className = "error";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    // --- Edit allocation ---
+    // The variant list order (by rangeStart) is fixed here and not user-reorderable —
+    // assertSafeReallocation rejects any call where the sorted variant order changes
+    // (DESIGN.md §2), so the UI never offers a way to produce that.
+    let editingExperimentId = null;
+    let editingCurrentVariants = null; // as returned by GET /experiments/:id, sorted by rangeStart
+
+    async function openEditPanel(experimentId, apiBase) {
+      createPanel.style.display = "none";
+      editPanel.style.display = "block";
+      editPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+
+      editingExperimentId = experimentId;
+      document.getElementById("editHeading").textContent = `Edit allocation — ${experimentId}`;
+      editVariantRowsEl.innerHTML = "";
+      editStatus.textContent = "loading…";
+      editStatus.className = "muted";
+
+      let res;
+      try {
+        res = await fetch(`${apiBase}/experiments/${encodeURIComponent(experimentId)}`, {
+          headers: { Authorization: `Bearer ${tokenInput.value}` },
+        });
+      } catch (err) {
+        editStatus.textContent = `request failed: ${err.message}`;
+        editStatus.className = "error";
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        editStatus.textContent = `${res.status}: ${body.error ?? res.statusText}`;
+        editStatus.className = "error";
+        return;
+      }
+
+      const data = await res.json();
+      editingCurrentVariants = data.variants;
+      editStatus.textContent = "";
+      editStatus.className = "muted";
+
+      for (const v of editingCurrentVariants) {
+        const percent = (v.rangeEnd - v.rangeStart + 1) / (BUCKET_SPACE / 100);
+        const row = document.createElement("div");
+        row.className = "variant-row";
+        row.innerHTML = `
+          <div class="grid">
+            <div class="control-flag">${v.isControl ? "<strong>Control</strong>" : ""}</div>
+            <div><label>Name</label>${v.name}</div>
+            <div><label>Variant ID</label><code>${v.id}</code></div>
+            <div>
+              <label>% traffic</label>
+              <input class="v-percent" type="number" min="1" max="99" step="1" value="${percent}" />
+            </div>
+          </div>
+          <span class="variant-range muted"></span>
+        `;
+        row.querySelector(".v-percent").addEventListener("input", recomputeEditRanges);
+        editVariantRowsEl.appendChild(row);
+      }
+      recomputeEditRanges();
+    }
+
+    function recomputeEditRanges() {
+      const rowEls = [...editVariantRowsEl.querySelectorAll(".variant-row")];
+      let cursor = 0;
+      let totalPercent = 0;
+      rowEls.forEach((row) => {
+        const percent = Number(row.querySelector(".v-percent").value) || 0;
+        totalPercent += percent;
+        const bucketCount = percent * (BUCKET_SPACE / 100);
+        const start = cursor;
+        const end = start + bucketCount - 1;
+        row.dataset.rangeStart = start;
+        row.dataset.rangeEnd = end;
+        row.querySelector(".variant-range").textContent =
+          bucketCount > 0 ? `${percent}% → buckets ${start}–${end}` : "0% (no traffic)";
+        cursor = end + 1;
+      });
+
+      const totalEl = document.getElementById("editAllocationTotal");
+      if (totalPercent === 100) {
+        totalEl.textContent = `Total allocation: ${totalPercent}%`;
+        totalEl.className = "muted";
+      } else {
+        const diff = 100 - totalPercent;
+        totalEl.textContent = `Total allocation: ${totalPercent}% — must equal 100% (${diff > 0 ? `add ${diff}` : `remove ${-diff}`}%)`;
+        totalEl.className = "error";
+      }
+    }
+
+    // Converts a full set of internal boundary values (the rangeEnd of every variant
+    // except the last, in sorted order) back into a variants[] payload for the
+    // allocation PATCH endpoint.
+    function boundariesToVariants(orderedIds, boundaries) {
+      return orderedIds.map((id, i) => ({
+        id,
+        rangeStart: i === 0 ? 0 : boundaries[i - 1] + 1,
+        rangeEnd: i === orderedIds.length - 1 ? BUCKET_SPACE - 1 : boundaries[i],
+      }));
+    }
+
+    document.getElementById("cancelEditBtn").addEventListener("click", () => {
+      editPanel.style.display = "none";
+    });
+
+    document.getElementById("saveAllocationBtn").addEventListener("click", async () => {
+      const apiBase = currentApiBase();
+      const token = tokenInput.value;
+      const rowEls = [...editVariantRowsEl.querySelectorAll(".variant-row")];
+
+      const totalPercent = rowEls.reduce((sum, row) => sum + (Number(row.querySelector(".v-percent").value) || 0), 0);
+      if (totalPercent !== 100) {
+        editStatus.textContent = `variant traffic percentages must add up to 100% (currently ${totalPercent}%)`;
+        editStatus.className = "error";
+        return;
+      }
+
+      const orderedIds = editingCurrentVariants.map((v) => v.id);
+      const currentBoundaries = editingCurrentVariants.slice(0, -1).map((v) => v.rangeEnd);
+      const targetBoundaries = rowEls.slice(0, -1).map((row) => Number(row.dataset.rangeEnd));
+
+      if (currentBoundaries.every((b, i) => b === targetBoundaries[i])) {
+        editStatus.textContent = "no changes to save";
+        editStatus.className = "muted";
+        return;
+      }
+
+      // One PATCH payload per boundary that actually moves, in order, each holding
+      // every other boundary at its most-recently-persisted value — the only shape
+      // assertSafeReallocation accepts per call (src/lib/allocation.ts, DESIGN.md §2).
+      const steps = [];
+      const working = [...currentBoundaries];
+      for (let i = 0; i < working.length; i++) {
+        if (working[i] !== targetBoundaries[i]) {
+          working[i] = targetBoundaries[i];
+          steps.push(boundariesToVariants(orderedIds, [...working]));
+        }
+      }
+
+      const saveBtn = document.getElementById("saveAllocationBtn");
+      saveBtn.disabled = true;
+
+      for (let i = 0; i < steps.length; i++) {
+        editStatus.textContent = `applying change ${i + 1} of ${steps.length}…`;
+        editStatus.className = "muted";
+        try {
+          const res = await fetch(`${apiBase}/experiments/${encodeURIComponent(editingExperimentId)}/allocation`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ variants: steps[i] }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const already = i > 0 ? ` (${i} of ${steps.length} change(s) already applied — reopen to see the current state)` : "";
+            editStatus.textContent = `change ${i + 1} of ${steps.length} failed: ${body.error ?? res.statusText}${already}`;
+            editStatus.className = "error";
+            saveBtn.disabled = false;
+            return;
+          }
+        } catch (err) {
+          editStatus.textContent = `request failed: ${err.message}`;
+          editStatus.className = "error";
+          saveBtn.disabled = false;
+          return;
+        }
+      }
+
+      editStatus.textContent = `saved (${steps.length} boundary move${steps.length === 1 ? "" : "s"} applied)`;
+      editStatus.className = "muted";
+      saveBtn.disabled = false;
+      editPanel.style.display = "none";
+      await loadExperiments();
+    });
   </script>
 </body>
 </html>

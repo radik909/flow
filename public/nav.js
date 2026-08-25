@@ -10,6 +10,7 @@
 
   var pages = [
     { href: "/experiments.html", label: "Experiments" },
+    { href: "/sites.html", label: "Sites" },
     { href: "/demo.html", label: "Demo" },
     { href: "/snippet-test.html", label: "Snippet test" },
   ];

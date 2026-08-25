@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { randomBytes } from "node:crypto";
+import { sql } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { sites } from "../db/schema.js";
 import { requireConfigAuth } from "../plugins/config-auth.js";
@@ -23,4 +24,30 @@ export function registerSiteRoutes(app: FastifyInstance): void {
       return reply.code(201).send({ key, name });
     },
   );
+
+  // Includes each site's experiment count — the main thing an admin actually wants to
+  // know at a glance (is this site set up, or a stray key nothing points at yet).
+  app.get("/sites", { preHandler: requireConfigAuth }, async (request, reply) => {
+    const rows = await db.execute<{
+      key: string;
+      name: string;
+      created_at: string;
+      experiment_count: string;
+    }>(sql`
+      select s.key, s.name, s.created_at, count(e.id) as experiment_count
+      from sites s
+      left join experiments e on e.site_key = s.key
+      group by s.key, s.name, s.created_at
+      order by s.created_at desc
+    `);
+
+    return reply.send(
+      rows.rows.map((r) => ({
+        key: r.key,
+        name: r.name,
+        createdAt: r.created_at,
+        experimentCount: Number(r.experiment_count),
+      })),
+    );
+  });
 }

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Experiment Assignment Service — Sites</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 3rem auto; padding: 0 1rem; }
+    label { display: block; font-size: 0.85rem; margin: 0.75rem 0 0.25rem; }
+    input { width: 100%; box-sizing: border-box; padding: 0.4rem; font-family: monospace; font-size: 0.9rem; }
+    button { padding: 0.5rem 1rem; margin-top: 0.75rem; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 2rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; vertical-align: top; }
+    th { font-size: 0.8rem; text-transform: uppercase; color: #666; }
+    .muted { color: #888; font-size: 0.85rem; }
+    .error { color: #b3261e; }
+    .copy-btn { padding: 0.2rem 0.5rem; margin: 0 0 0 0.5rem; font-size: 0.75rem; }
+
+    #createPanel { border: 1px solid #ddd; border-radius: 0.5rem; padding: 1rem 1.25rem 1.25rem; margin-top: 1rem; display: none; }
+    #createPanel h2 { font-size: 1.1rem; margin: 0 0 0.25rem; }
+    #createActions { display: flex; align-items: center; gap: 0.75rem; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <script src="/nav.js"></script>
+  <h1>Sites</h1>
+  <p class="muted">
+    Lists registered sites via the config API (<code>GET /sites</code>, bearer-authed) —
+    each site's key is the public, browser-facing identifier that scopes
+    <code>/assign</code> and <code>/track/*</code> traffic (DESIGN.md §5).
+  </p>
+
+  <label for="apiBase">API base</label>
+  <input id="apiBase" value="" placeholder="http://localhost:8080" />
+
+  <label for="token">Config API token</label>
+  <input id="token" type="password" placeholder="Bearer token from CONFIG_API_TOKENS" />
+
+  <button id="load">Load sites</button>
+  <button id="newSiteToggle" type="button">+ New site</button>
+  <span id="status" class="muted"></span>
+
+  <table id="table" style="display: none;">
+    <thead>
+      <tr>
+        <th>Key</th>
+        <th>Name</th>
+        <th>Experiments</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <div id="createPanel">
+    <h2>New site</h2>
+    <p class="muted">Creates via <code>POST /sites</code> and mints a random public key.</p>
+
+    <label for="newSiteName">Name</label>
+    <input id="newSiteName" placeholder="e.g. marketing site" />
+
+    <div id="createActions">
+      <button id="createSiteBtn" type="button">Create site</button>
+      <span id="createStatus" class="muted"></span>
+    </div>
+  </div>
+
+  <script>
+    const apiBaseInput = document.getElementById("apiBase");
+    const tokenInput = document.getElementById("token");
+    const statusEl = document.getElementById("status");
+    const table = document.getElementById("table");
+    const rows = document.getElementById("rows");
+    const createPanel = document.getElementById("createPanel");
+    const createStatus = document.getElementById("createStatus");
+
+    // Shared with experiments.html — same localStorage keys, so a token entered on
+    // either admin page carries over to the other.
+    apiBaseInput.value = localStorage.getItem("experiments.apiBase") || window.location.origin;
+    tokenInput.value = localStorage.getItem("experiments.token") || "";
+
+    function fmtDate(iso) {
+      return new Date(iso).toLocaleString();
+    }
+
+    function currentApiBase() {
+      return apiBaseInput.value.replace(/\/$/, "");
+    }
+
+    async function loadSites() {
+      const apiBase = currentApiBase();
+      const token = tokenInput.value;
+      localStorage.setItem("experiments.apiBase", apiBase);
+      localStorage.setItem("experiments.token", token);
+
+      statusEl.textContent = "loading…";
+      statusEl.className = "muted";
+      rows.innerHTML = "";
+      table.style.display = "none";
+
+      let res;
+      try {
+        res = await fetch(`${apiBase}/sites`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        statusEl.textContent = `request failed: ${err.message}`;
+        statusEl.className = "error";
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        statusEl.textContent = `${res.status}: ${body.error ?? res.statusText}`;
+        statusEl.className = "error";
+        return;
+      }
+
+      const sites = await res.json();
+      statusEl.textContent = `${sites.length} site(s)`;
+      statusEl.className = "muted";
+
+      if (sites.length === 0) {
+        table.style.display = "none";
+        return;
+      }
+
+      table.style.display = "table";
+      for (const site of sites) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td><code>${site.key}</code><button type="button" class="copy-btn">copy</button></td>
+          <td>${site.name}</td>
+          <td>${site.experimentCount}</td>
+          <td>${fmtDate(site.createdAt)}</td>
+        `;
+        const copyBtn = tr.querySelector(".copy-btn");
+        copyBtn.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(site.key);
+            copyBtn.textContent = "copied";
+            setTimeout(() => (copyBtn.textContent = "copy"), 1500);
+          } catch (err) {
+            copyBtn.textContent = "failed";
+          }
+        });
+        rows.appendChild(tr);
+      }
+    }
+
+    document.getElementById("load").addEventListener("click", loadSites);
+    if (tokenInput.value) loadSites();
+
+    document.getElementById("newSiteToggle").addEventListener("click", () => {
+      const showing = createPanel.style.display === "block";
+      createPanel.style.display = showing ? "none" : "block";
+    });
+
+    document.getElementById("createSiteBtn").addEventListener("click", async () => {
+      const apiBase = currentApiBase();
+      const token = tokenInput.value;
+      const name = document.getElementById("newSiteName").value.trim();
+
+      if (!name) {
+        createStatus.textContent = "site name is required";
+        createStatus.className = "error";
+        return;
+      }
+
+      createStatus.textContent = "creating…";
+      createStatus.className = "muted";
+
+      try {
+        const res = await fetch(`${apiBase}/sites`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ name }),
+        });
+        const body = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          createStatus.textContent = body.error ?? res.statusText;
+          createStatus.className = "error";
+          return;
+        }
+
+        createStatus.textContent = `created "${body.name}" — key ${body.key}`;
+        createStatus.className = "muted";
+        document.getElementById("newSiteName").value = "";
+        createPanel.style.display = "none";
+        await loadSites();
+      } catch (err) {
+        createStatus.textContent = `request failed: ${err.message}`;
+        createStatus.className = "error";
+      }
+    });
+  </script>
+</body>
+</html>
