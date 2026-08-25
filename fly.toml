@@ -1,5 +1,6 @@
 # Fly.io app config. See DESIGN.md §9 for the hosting decision and trade-offs.
-app = "experiment-assignment-service" # rename to a unique app name before `fly launch`
+app = "exp-assign-svc-3da615"
+primary_region = "iad"
 
 [build]
 

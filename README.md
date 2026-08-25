@@ -117,16 +117,30 @@ curl http://localhost:8080/results/demo-headline
 ## Deployment
 
 Deployed on Fly.io — see `Dockerfile` and `fly.toml`. Migrations run as the release
-command, once per deploy, before new instances take traffic.
+command, once per deploy, before new instances take traffic. The app runs alongside a
+[Fly Postgres](https://fly.io/docs/postgres/) app (`exp-assign-svc-3da615-db`), attached
+via `fly postgres attach`, which sets `DATABASE_URL` as a secret automatically.
 
 ```bash
-fly launch    # picks a region, wires up fly.toml — rename the app first
-fly secrets set DATABASE_URL=... ANTHROPIC_API_KEY=... CONFIG_API_TOKENS=...
+fly apps create <unique-app-name>   # app name in fly.toml must match
+fly postgres create                 # or attach an existing Postgres app
+fly postgres attach <postgres-app-name>
+fly secrets set ANTHROPIC_API_KEY=... CONFIG_API_TOKENS=...
 fly deploy
 ```
 
-**Live URL:** _add once deployed_
-**Demo:** `<live URL>/demo.html`
+**Live URL:** https://exp-assign-svc-3da615.fly.dev
+**Demo:** https://exp-assign-svc-3da615.fly.dev/demo.html
+**Experiments admin:** https://exp-assign-svc-3da615.fly.dev/experiments.html
+**Sites admin:** https://exp-assign-svc-3da615.fly.dev/sites.html
+
+Config API bearer token for the deployed instance is separate from the local dev one in
+`.env` — ask for it rather than assuming the local value works.
+
+`ANTHROPIC_API_KEY` is not currently set on the deployed instance (still a placeholder),
+so the "Generate with LLM" variant-content path will fail with a 502 there until a real
+key is set via `fly secrets set`. Everything else — assignment, tracking, results, the
+allocation editor, sites — is verified working end to end against the live URL.
 
 ## Design document
 
