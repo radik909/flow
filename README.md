@@ -1,6 +1,6 @@
 # Experiment Assignment Service — Design Document
 
-This project is architected & written by Claude.
+This project is architected & written by Claude and overseen/guided by me.
 
 ### Out of scope:
 
