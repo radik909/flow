@@ -25,6 +25,9 @@ scale, failure modes, and the trade-offs made under a 24h budget).
 - **Demo page** (`public/demo.html`, served at `/demo.html`) — a separate, narrated
   manual test harness with its own inline JS and visible logging, for walking through
   the API step by step. Not what a real integration would use — that's the snippet above.
+- **Shared tab bar** (`public/nav.js`) — a small dependency-free script included at the
+  top of `<body>` on the experiments, demo, and snippet-test pages, so they all link to
+  each other with the current page highlighted.
 - **Experiments admin page** (`public/experiments.html`, served at `/experiments.html`)
   — lists experiments via `GET /experiments` (bearer token entered in the page, kept in
   `localStorage` only) and expands a row to show its `GET /results/:id` breakdown
