@@ -16,8 +16,15 @@ scale, failure modes, and the trade-offs made under a 24h budget).
   — bearer-token authed, includes LLM-generated variant content at creation time.
 - **Results** (`GET /results/:id`) — exposures/conversions/rate per variant, a
   two-proportion z-test vs. control, and a Sample Ratio Mismatch integrity check.
-- **Demo page** (`public/demo.html`, served at `/demo.html`) — exercises the live API
-  end to end from a browser.
+- **Production snippet** (`public/snippet.js`) — the actual customer-facing
+  integration: loads synchronously in `<head>`, hides the page before paint, applies
+  variant content declaratively via `data-experiment-id`, and reveals on assignment
+  or a configurable timeout (default 200ms, see DESIGN.md §4). `public/snippet-test.html`
+  is a minimal page exercising it end to end (verified in a real browser: hide/reveal,
+  DOM replacement, sticky visitor identity, exposure beacon).
+- **Demo page** (`public/demo.html`, served at `/demo.html`) — a separate, narrated
+  manual test harness with its own inline JS and visible logging, for walking through
+  the API step by step. Not what a real integration would use — that's the snippet above.
 
 ## Stack
 
