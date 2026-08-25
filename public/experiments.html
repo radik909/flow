@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Experiment Assignment Service — Experiments</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 3rem auto; padding: 0 1rem; }
+    label { display: block; font-size: 0.85rem; margin: 0.75rem 0 0.25rem; }
+    input { width: 100%; box-sizing: border-box; padding: 0.4rem; font-family: monospace; }
+    button { padding: 0.5rem 1rem; margin-top: 0.75rem; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 2rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; vertical-align: top; }
+    th { font-size: 0.8rem; text-transform: uppercase; color: #666; }
+    .status { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 1rem; background: #eee; }
+    .status-active { background: #d7f5dd; }
+    .status-paused { background: #fdf0c8; }
+    .status-archived { background: #eee; color: #888; }
+    tr.exp-row { cursor: pointer; }
+    tr.exp-row:hover { background: #fafafa; }
+    .results-row td { background: #f9f9f9; }
+    .results-row table { margin-top: 0; }
+    .sig-yes { color: #1a7d3a; font-weight: 600; }
+    .warn { color: #a8710a; }
+    .error { color: #b3261e; }
+    .muted { color: #888; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h1>Experiments</h1>
+  <p class="muted">
+    Lists experiments via the config API (<code>GET /experiments</code>, bearer-authed).
+    Click a row to load its results (<code>GET /results/:id</code>, public).
+  </p>
+
+  <label for="apiBase">API base</label>
+  <input id="apiBase" value="" placeholder="http://localhost:8080" />
+
+  <label for="token">Config API token</label>
+  <input id="token" type="password" placeholder="Bearer token from CONFIG_API_TOKENS" />
+
+  <button id="load">Load experiments</button>
+  <span id="status" class="muted"></span>
+
+  <table id="table" style="display: none;">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Site</th>
+        <th>Status</th>
+        <th>Salt</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script>
+    const apiBaseInput = document.getElementById("apiBase");
+    const tokenInput = document.getElementById("token");
+    const statusEl = document.getElementById("status");
+    const table = document.getElementById("table");
+    const rows = document.getElementById("rows");
+
+    // Same-origin default; both fields persist locally so reloading this page
+    // doesn't require re-pasting the token every time.
+    apiBaseInput.value = localStorage.getItem("experiments.apiBase") || window.location.origin;
+    tokenInput.value = localStorage.getItem("experiments.token") || "";
+
+    function fmtDate(iso) {
+      return new Date(iso).toLocaleString();
+    }
+
+    async function loadExperiments() {
+      const apiBase = apiBaseInput.value.replace(/\/$/, "");
+      const token = tokenInput.value;
+      localStorage.setItem("experiments.apiBase", apiBase);
+      localStorage.setItem("experiments.token", token);
+
+      statusEl.textContent = "loading…";
+      statusEl.className = "muted";
+      rows.innerHTML = "";
+      table.style.display = "none";
+
+      let res;
+      try {
+        res = await fetch(`${apiBase}/experiments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        statusEl.textContent = `request failed: ${err.message}`;
+        statusEl.className = "error";
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        statusEl.textContent = `${res.status}: ${body.error ?? res.statusText}`;
+        statusEl.className = "error";
+        return;
+      }
+
+      const experiments = await res.json();
+      statusEl.textContent = `${experiments.length} experiment(s)`;
+      statusEl.className = "muted";
+
+      if (experiments.length === 0) {
+        table.style.display = "none";
+        return;
+      }
+
+      table.style.display = "table";
+      for (const exp of experiments) {
+        const tr = document.createElement("tr");
+        tr.className = "exp-row";
+        tr.innerHTML = `
+          <td><code>${exp.id}</code></td>
+          <td>${exp.name}</td>
+          <td><code>${exp.siteKey}</code></td>
+          <td><span class="status status-${exp.status}">${exp.status}</span></td>
+          <td><code>${exp.salt}</code></td>
+          <td>${fmtDate(exp.createdAt)}</td>
+        `;
+        tr.addEventListener("click", () => toggleResults(tr, exp.id, apiBase));
+        rows.appendChild(tr);
+      }
+    }
+
+    async function toggleResults(tr, experimentId, apiBase) {
+      const existing = tr.nextElementSibling;
+      if (existing?.classList.contains("results-row")) {
+        existing.remove();
+        return;
+      }
+      // Close any other open results row before opening a new one.
+      document.querySelectorAll(".results-row").forEach((el) => el.remove());
+
+      const resultsRow = document.createElement("tr");
+      resultsRow.className = "results-row";
+      const cell = document.createElement("td");
+      cell.colSpan = 6;
+      cell.textContent = "loading results…";
+      resultsRow.appendChild(cell);
+      tr.after(resultsRow);
+
+      let res;
+      try {
+        res = await fetch(`${apiBase}/results/${encodeURIComponent(experimentId)}`);
+      } catch (err) {
+        cell.textContent = `request failed: ${err.message}`;
+        cell.className = "error";
+        return;
+      }
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        cell.textContent = `${res.status}: ${body.error ?? res.statusText}`;
+        cell.className = "error";
+        return;
+      }
+
+      const data = await res.json();
+      const srmWarn = data.srm.flagged
+        ? `<p class="warn">⚠ ${data.srm.note}</p>`
+        : "";
+      const mcWarn = data.multipleComparisonsWarning
+        ? `<p class="warn">⚠ ${data.multipleComparisonsWarning}</p>`
+        : "";
+
+      const variantRows = data.variants
+        .map((v) => {
+          const rate = v.conversionRate != null ? `${(v.conversionRate * 100).toFixed(2)}%` : "—";
+          const sig = v.vsControl
+            ? v.vsControl.significant
+              ? `<span class="sig-yes">p=${v.vsControl.pValue.toFixed(4)} ✓ significant</span>`
+              : `p=${v.vsControl.pValue.toFixed(4)}`
+            : v.isControl
+              ? "(control)"
+              : "—";
+          const warn = v.belowMinSampleSize ? ' <span class="warn">(below min sample size)</span>' : "";
+          return `
+            <tr>
+              <td>${v.name}${v.isControl ? " (control)" : ""}</td>
+              <td>${v.exposures}</td>
+              <td>${v.conversions}</td>
+              <td>${rate}${warn}</td>
+              <td>${sig}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      cell.className = "";
+      cell.innerHTML = `
+        ${srmWarn}
+        ${mcWarn}
+        <table>
+          <thead>
+            <tr><th>Variant</th><th>Exposures</th><th>Conversions</th><th>Rate</th><th>vs. control</th></tr>
+          </thead>
+          <tbody>${variantRows}</tbody>
+        </table>
+      `;
+    }
+
+    document.getElementById("load").addEventListener("click", loadExperiments);
+    if (tokenInput.value) loadExperiments();
+  </script>
+</body>
+</html>
